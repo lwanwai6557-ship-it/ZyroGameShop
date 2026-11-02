@@ -65,6 +65,9 @@ button{
 }
 .footer{text-align:center;color:#6886a9;font-size:12px;padding:15px}
 </style>
+  <meta name="theme-color" content="#050b18">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-192.png">
 </head>
 
 <body>
@@ -288,5 +291,15 @@ document.getElementById("orderSuccess").innerHTML=
 
 changeGame();
 </script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .catch(err => console.error('SW error:', err));
+  });
+}
+</script>
+
 </body>
 </html>
