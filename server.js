@@ -1,10 +1,30 @@
 require('dotenv').config();
 
 const express = require('express');
+const session = require('express-session');
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
+
+if (!process.env.ADMIN_PASSWORD) {
+  throw new Error('ADMIN_PASSWORD missing');
+}
+
+app.set('trust proxy', 1);
+app.use(express.json());
+
+app.use(session({
+  secret: process.env.ADMIN_PASSWORD,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 8 * 60 * 60 * 1000
+  }
+}));
 
 const TOKEN = process.env.BOT_TOKEN;
 const ADMIN = String(process.env.ADMIN_CHAT_ID || '');
@@ -73,6 +93,50 @@ async function telegram(method, body) {
 }
 
 app.use(express.static(__dirname));
+
+app.post('/api/admin/login', express.json(), (req, res) => {
+  const password = req.body?.password;
+
+  if (typeof password !== 'string' ||
+      password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({error: 'Password မှားနေပါတယ်'});
+  }
+
+  req.session.isAdmin = true;
+  res.json({success: true});
+});
+
+app.get('/api/admin/check', (req, res) => {
+  res.json({loggedIn: req.session.isAdmin === true});
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('connect.sid');
+    res.json({success: true});
+  });
+});
+
+app.get('/api/admin/orders', async (req, res) => {
+  if (req.session.isAdmin !== true) {
+    return res.status(401).json({error: 'Unauthorized'});
+  }
+
+  try {
+    const {data, error} = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', {ascending: false})
+      .limit(100);
+
+    if (error) throw error;
+    res.json(data);
+  } catch (e) {
+    console.error('ADMIN ORDERS ERROR:', e.message);
+    res.status(500).json({error: 'Orders could not be loaded'});
+  }
+});
+
 
 app.post('/api/order', upload.single('paymentProof'), async (req,res) => {
   try {
@@ -234,6 +298,40 @@ async function poll() {
   polling = false;
   setImmediate(poll);
 }
+
+app.post('/api/admin/order/:id/status', async (req, res) => {
+  if (req.session.isAdmin !== true) {
+    return res.status(401).json({error: 'Unauthorized'});
+  }
+
+  const id = Number(req.params.id);
+  const status = req.body?.status;
+
+  if (!Number.isSafeInteger(id) || id < 1 ||
+      !['APPROVED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({error: 'Invalid request'});
+  }
+
+  try {
+    const {data, error} = await supabase
+      .from('orders')
+      .update({status})
+      .eq('id', id)
+      .eq('status', 'PENDING')
+      .select('id,status')
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) {
+      return res.status(409).json({error: 'Order မရှိတော့ပါ သို့မဟုတ် ဆုံးဖြတ်ပြီးပါပြီ'});
+    }
+
+    res.json({success: true, order: data});
+  } catch (e) {
+    console.error('ADMIN STATUS ERROR:', e.message);
+    res.status(500).json({error: 'Status update failed'});
+  }
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`ZYRO SHOP SERVER RUNNING ON PORT ${PORT}`);

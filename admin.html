@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZYRO Admin Dashboard</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#081225;color:#fff;font-family:Arial,sans-serif}
+.wrap{max-width:900px;margin:auto}
+h1{color:#55c8ff}
+.card{background:#14233d;padding:18px;border-radius:14px;margin:14px 0}
+input{width:100%;padding:13px;border-radius:8px;border:0;margin:8px 0}
+button{padding:11px 15px;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin:4px}
+.primary{background:#22aaff;color:#fff}
+.green{background:#16a36a;color:#fff}
+.red{background:#d94355;color:#fff}
+.muted{color:#a9bad2}
+.hidden{display:none}
+.order{border:1px solid #344966;padding:14px;border-radius:10px;margin:12px 0}
+.status{font-weight:bold;color:#ffd166}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>ZYRO GAME SHOP</h1>
+<p class="muted">ADMIN DASHBOARD</p>
+
+<div id="login" class="card">
+<h2>Admin Login</h2>
+<input id="password" type="password" placeholder="Admin Password">
+<button class="primary" onclick="login()">LOGIN</button>
+<p id="loginMsg"></p>
+</div>
+
+<div id="dashboard" class="hidden">
+<div class="card">
+<h2>Orders</h2>
+<button class="primary" onclick="loadOrders()">REFRESH</button>
+<button class="red" onclick="logout()">LOGOUT</button>
+<p id="message" class="muted"></p>
+<div id="orders"></div>
+</div>
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function api(url, options={}) {
+  const res = await fetch(url, {
+    credentials:'same-origin',
+    ...options,
+    headers:{'Content-Type':'application/json',...(options.headers||{})}
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function login() {
+  $('loginMsg').textContent='Checking...';
+  try {
+    await api('/api/admin/login',{
+      method:'POST',
+      body:JSON.stringify({password:$('password').value})
+    });
+    $('password').value='';
+    showDashboard();
+  } catch(e) {
+    $('loginMsg').textContent=e.message;
+  }
+}
+
+function showDashboard() {
+  $('login').classList.add('hidden');
+  $('dashboard').classList.remove('hidden');
+  loadOrders();
+}
+
+async function loadOrders() {
+  $('message').textContent='Loading...';
+  try {
+    const orders=await api('/api/admin/orders');
+    $('orders').replaceChildren();
+
+    if (!orders.length) {
+      $('message').textContent='Order မရှိသေးပါ။';
+      return;
+    }
+
+    $('message').textContent=orders.length+' Orders';
+
+    for (const o of orders) {
+      const card=document.createElement('div');
+      card.className='order';
+
+      const info=document.createElement('div');
+      info.textContent=
+        '#'+o.id+' | '+o.game.toUpperCase()+
+        ' | '+o.package_name+
+        ' | '+Number(o.amount).toLocaleString()+' MMK';
+
+      const details=document.createElement('p');
+      details.textContent=
+        'Customer: '+o.customer+
+        ' | Game ID: '+o.game_id+
+        (o.server_id ? ' | Server: '+o.server_id : '');
+
+      const status=document.createElement('p');
+      status.className='status';
+      status.textContent='Status: '+o.status;
+
+      card.append(info,details,status);
+
+      if (o.status==='PENDING') {
+        const approve=document.createElement('button');
+        approve.className='green';
+        approve.textContent='APPROVE';
+        approve.onclick=()=>changeStatus(o.id,'APPROVED');
+
+        const reject=document.createElement('button');
+        reject.className='red';
+        reject.textContent='REJECT';
+        reject.onclick=()=>changeStatus(o.id,'REJECTED');
+
+        card.append(approve,reject);
+      }
+
+      $('orders').append(card);
+    }
+  } catch(e) {
+    $('message').textContent=e.message;
+  }
+}
+
+async function changeStatus(id,status) {
+  if (!confirm('Order #'+id+' ကို '+status+' လုပ်မှာ သေချာပါသလား?')) return;
+  try {
+    await api('/api/admin/order/'+id+'/status',{
+      method:'POST',
+      body:JSON.stringify({status})
+    });
+    loadOrders();
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+async function logout() {
+  try { await api('/api/admin/logout',{method:'POST'}); } catch(e) {}
+  $('dashboard').classList.add('hidden');
+  $('login').classList.remove('hidden');
+}
+
+async function start() {
+  try {
+    const result=await api('/api/admin/check');
+    if (result.loggedIn) showDashboard();
+  } catch(e) {}
+}
+
+start();
+</script>
+</body>
+</html>
