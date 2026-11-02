@@ -194,13 +194,38 @@ app.post('/api/order', upload.single('paymentProof'), async (req,res) => {
       ), req.file.originalname);
       form.append('reply_markup', JSON.stringify(buttons));
 
-      await telegram('sendPhoto', form);
+      const sent = await telegram('sendPhoto', form);
+
+const { error: saveTelegramError } = await supabase
+  .from('orders')
+  .update({
+    telegram_chat_id: String(sent.chat.id),
+    telegram_message_id: sent.message_id,
+    telegram_has_photo: true,
+    telegram_message_text: caption
+  })
+  .eq('id', id);
+
+if (saveTelegramError) throw saveTelegramError;
     } else {
-      await telegram('sendMessage', {
-        chat_id: ADMIN,
-        text: caption,
-        reply_markup: buttons
-      });
+      const sent = await telegram('sendMessage', {
+  chat_id: ADMIN,
+  text: caption,
+  reply_markup: buttons
+});
+
+const { error: saveTelegramError } = await supabase
+  .from('orders')
+  .update({
+    telegram_chat_id: String(sent.chat.id),
+    telegram_message_id: sent.message_id,
+    telegram_has_photo: false,
+    telegram_message_text: caption
+  })
+  .eq('id', id);
+
+if (saveTelegramError) throw saveTelegramError;
+
     }
 
     res.json({success:true,orderId:id});
@@ -318,15 +343,47 @@ app.post('/api/admin/order/:id/status', async (req, res) => {
       .update({status})
       .eq('id', id)
       .eq('status', 'PENDING')
-      .select('id,status')
+      .select('*')
       .maybeSingle();
 
     if (error) throw error;
+
     if (!data) {
-      return res.status(409).json({error: 'Order မရှိတော့ပါ သို့မဟုတ် ဆုံးဖြတ်ပြီးပါပြီ'});
+      return res.status(409).json({
+        error: 'Order မရှိတော့ပါ သို့မဟုတ် ဆုံးဖြတ်ပြီးပါပြီ'
+      });
     }
 
-    res.json({success: true, order: data});
+    let telegramUpdated = false;
+
+    if (data.telegram_chat_id && data.telegram_message_id) {
+      try {
+        const method = data.telegram_has_photo
+          ? 'editMessageCaption'
+          : 'editMessageText';
+
+        const messageText =
+          `${data.telegram_message_text || ''}\n\n${status}`;
+
+        await telegram(method, {
+          chat_id: data.telegram_chat_id,
+          message_id: data.telegram_message_id,
+          [data.telegram_has_photo ? 'caption' : 'text']: messageText,
+          reply_markup: {inline_keyboard: []}
+        });
+
+        telegramUpdated = true;
+      } catch (telegramError) {
+        console.error('ADMIN TELEGRAM UPDATE:', telegramError.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      order: data,
+      telegramUpdated
+    });
+
   } catch (e) {
     console.error('ADMIN STATUS ERROR:', e.message);
     res.status(500).json({error: 'Status update failed'});
