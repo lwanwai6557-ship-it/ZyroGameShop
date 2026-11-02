@@ -1,42 +1,34 @@
-
 require('dotenv').config();
+
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 
-const DATA_FILE = path.join(__dirname, 'orders.json');
-
-let orders = [];
-
-if (fs.existsSync(DATA_FILE)) {
-  try {
-    orders = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch (e) {
-    console.error('Order file error:', e.message);
-    orders = [];
-  }
-} else {
-  fs.writeFileSync(DATA_FILE, '[]');
-}
-
-function saveOrders() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(orders, null, 2));
-}
 const app = express();
-
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }
-});
 
 const TOKEN = process.env.BOT_TOKEN;
 const ADMIN = String(process.env.ADMIN_CHAT_ID || '');
 const PORT = process.env.PORT || 3000;
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
-if (!TOKEN || !ADMIN) throw new Error('BOT_TOKEN or ADMIN_CHAT_ID missing');
+if (!TOKEN || !ADMIN) {
+  throw new Error('BOT_TOKEN or ADMIN_CHAT_ID missing');
+}
+
+if (!process.env.SUPABASE_URL ||
+    !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('Supabase environment variables missing');
+}
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
 
 let offset = 0;
 let polling = false;
@@ -60,6 +52,7 @@ const prices = {
 
 async function telegram(method, body) {
   const isForm = body instanceof FormData;
+
   const payload = isForm ? body : new URLSearchParams(
     Object.entries(body).map(([k,v]) => [
       k, typeof v === 'object' ? JSON.stringify(v) : String(v)
@@ -67,13 +60,15 @@ async function telegram(method, body) {
   );
 
   const res = await fetch(`${API}/${method}`, {
-    method:'POST',
-    body:payload,
-    signal:AbortSignal.timeout(60000)
+    method: 'POST',
+    body: payload,
+    signal: AbortSignal.timeout(60000)
   });
 
   const data = await res.json();
+
   if (!data.ok) throw new Error(data.description);
+
   return data.result;
 }
 
@@ -86,22 +81,28 @@ app.post('/api/order', upload.single('paymentProof'), async (req,res) => {
 
     if (!price || !gameId || !customer ||
         (game === 'mlbb' && !serverId)) {
-      return res.status(400).json({error:'Order information missing'});
+      return res.status(400).json({
+        error: 'Order information missing'
+      });
     }
 
-    const id = String(
-  Math.max(0, ...orders.map(o => Number(o.id) || 0)) + 1
-);
+    const { data: order, error } = await supabase
+      .from('orders')
+      .insert({
+        game,
+        game_id: gameId,
+        server_id: serverId || null,
+        package_name: packageName,
+        customer,
+        amount: price,
+        status: 'PENDING'
+      })
+      .select('id')
+      .single();
 
-const order = {
-  id, game, gameId, serverId,
-  packageName, customer, price,
-  status: 'PENDING',
-  createdAt: new Date().toISOString()
-};
+    if (error) throw error;
 
-orders.push(order);
-saveOrders();
+    const id = String(order.id);
 
     const caption =
       `🛒 ZYRO NEW ORDER #${id}\n\n`+
@@ -114,7 +115,7 @@ saveOrders();
       `Status: PENDING`;
 
     const buttons = {
-      inline_keyboard:[[
+      inline_keyboard: [[
         {text:'✅ APPROVE',callback_data:`approve:${id}`},
         {text:'❌ REJECT',callback_data:`reject:${id}`}
       ]]
@@ -122,29 +123,28 @@ saveOrders();
 
     if (req.file) {
       const form = new FormData();
-      form.append('chat_id',ADMIN);
-      form.append('caption',caption);
-      form.append('photo',new Blob(
-        [req.file.buffer],{type:req.file.mimetype}
-      ),req.file.originalname);
-      form.append('reply_markup',JSON.stringify(buttons));
-      await telegram('sendPhoto',form);
+      form.append('chat_id', ADMIN);
+      form.append('caption', caption);
+      form.append('photo', new Blob(
+        [req.file.buffer], {type:req.file.mimetype}
+      ), req.file.originalname);
+      form.append('reply_markup', JSON.stringify(buttons));
+
+      await telegram('sendPhoto', form);
     } else {
-      await telegram('sendMessage',{
-        chat_id:ADMIN,text:caption,reply_markup:buttons
+      await telegram('sendMessage', {
+        chat_id: ADMIN,
+        text: caption,
+        reply_markup: buttons
       });
     }
 
     res.json({success:true,orderId:id});
-  } catch(e) {
-    console.error('ORDER ERROR:',e.message);
-    res.status(500).json({error:e.message});
-  }
-});
 
-// Order history API
-app.get('/api/orders', (req,res) => {
-  res.json([...orders].reverse().slice(0,100));
+  } catch(e) {
+    console.error('ORDER ERROR:', e.message);
+    res.status(500).json({error:'Order could not be processed'});
+  }
 });
 
 async function poll() {
@@ -152,7 +152,7 @@ async function poll() {
   polling = true;
 
   try {
-    const result = await telegram('getUpdates',{
+    const result = await telegram('getUpdates', {
       offset,
       timeout:10,
       allowed_updates:['callback_query']
@@ -160,62 +160,82 @@ async function poll() {
 
     for (const update of result) {
       offset = update.update_id + 1;
+
       const q = update.callback_query;
       if (!q) continue;
 
       try {
-        await telegram('answerCallbackQuery',{
+        await telegram('answerCallbackQuery', {
           callback_query_id:q.id
         });
       } catch(e) {
-        console.error('Callback answer:',e.message);
+        console.error('Callback answer:', e.message);
       }
 
       if (String(q.from.id) !== ADMIN) continue;
 
       const [action,id] = (q.data || '').split(':');
+
       if (!['approve','reject'].includes(action)) continue;
 
-      const order = orders.find(o => o.id === id);
- 
-     if (!order || order.status !== 'PENDING') continue;
+      const status = action === 'approve'
+        ? 'APPROVED'
+        : 'REJECTED';
 
-      const status = action === 'approve' ? 'APPROVED' : 'REJECTED';
-      order.status = status;
-saveOrders();
+      const { data: order, error: findError } = await supabase
+        .from('orders')
+        .select('id,status')
+        .eq('id', Number(id))
+        .maybeSingle();
+
+      if (findError) throw findError;
+
+      if (!order || order.status !== 'PENDING') continue;
+
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({status})
+        .eq('id', Number(id))
+        .eq('status', 'PENDING');
+
+      if (updateError) throw updateError;
 
       try {
         const oldText = q.message.text || q.message.caption || '';
+
         if (q.message.photo) {
-          await telegram('editMessageCaption',{
+          await telegram('editMessageCaption', {
             chat_id:q.message.chat.id,
             message_id:q.message.message_id,
             caption:oldText+`\n\n${status}`,
             reply_markup:{inline_keyboard:[]}
           });
         } else {
-          await telegram('editMessageText',{
+          await telegram('editMessageText', {
             chat_id:q.message.chat.id,
             message_id:q.message.message_id,
             text:oldText+`\n\n${status}`,
             reply_markup:{inline_keyboard:[]}
           });
         }
+
         console.log(`Order #${id}: ${status}`);
+
       } catch(e) {
-        console.error('Message update:',e.message);
+        console.error('Message update:', e.message);
       }
     }
+
   } catch(e) {
-    console.error('Telegram polling:',e.message);
-    await new Promise(r=>setTimeout(r,3000));
+    console.error('Telegram polling:', e.message);
+    await new Promise(r => setTimeout(r,3000));
   }
 
   polling = false;
   setImmediate(poll);
 }
 
-app.listen(PORT,'0.0.0.0',() => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`ZYRO SHOP SERVER RUNNING ON PORT ${PORT}`);
   poll();
 });
