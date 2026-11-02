@@ -1,0 +1,292 @@
+
+<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZYRO GAME TOP UP</title>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+ font-family:Arial,sans-serif;
+ background:#050b18;color:white;padding:16px
+}
+.container{max-width:520px;margin:auto}
+.header{
+ text-align:center;padding:25px 10px;margin-bottom:18px;
+ background:linear-gradient(135deg,#071d40,#102e63);
+ border:1px solid #1764ad;border-radius:18px;
+ box-shadow:0 0 20px #087bff22
+}
+.logo{font-size:30px;font-weight:bold;color:#38c8ff}
+.header h2{margin-top:5px}
+.header p{color:#a8c8ed;margin-top:8px;font-size:13px}
+.section{
+ background:#0c172b;border:1px solid #1b3558;
+ border-radius:15px;padding:17px;margin-bottom:15px
+}
+.section h3{color:#42caff;margin-bottom:14px;font-size:16px}
+label{
+ display:block;color:#b8cce5;font-size:13px;
+ margin:12px 0 7px
+}
+input,select{
+ width:100%;padding:13px;border-radius:9px;
+ border:1px solid #28476d;background:#071225;
+ color:white;outline:none;font-size:14px
+}
+input:focus,select:focus{border-color:#20aaff}
+.packages{
+ display:grid;grid-template-columns:repeat(2,1fr);gap:10px
+}
+.package{
+ background:#101f37;border:1px solid #28466b;
+ padding:15px 8px;border-radius:11px;text-align:center;
+ cursor:pointer
+}
+.package b{display:block;color:white;font-size:15px;margin-bottom:7px}
+.package small{color:#40c8ff;font-size:13px}
+.package.active{
+ border:2px solid #27c5ff;background:#10345b;
+ box-shadow:0 0 13px #008cff66
+}
+.total{
+ display:flex;justify-content:space-between;align-items:center;
+ background:#071c34;padding:15px;border-radius:10px;margin-top:15px
+}
+.total span{color:#a9c9e9}
+.total strong{color:#42d6ff;font-size:19px}
+button{
+ width:100%;padding:15px;border:0;border-radius:11px;
+ background:linear-gradient(90deg,#0878ff,#00c6ff);
+ color:white;font-size:16px;font-weight:bold;
+ cursor:pointer;margin-top:15px
+}
+.footer{text-align:center;color:#6886a9;font-size:12px;padding:15px}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+ <div class="header">
+  <div class="logo">⚡ ZYRO</div>
+  <h2>GAME TOP UP</h2>
+  <p>FAST • SAFE • EASY TOP UP</p>
+ </div>
+
+ <div class="section">
+  <h3>🎮 Select Game</h3>
+  <select id="game" onchange="changeGame()">
+   <option value="mlbb">Mobile Legends</option>
+   <option value="pubg">PUBG Mobile</option>
+  </select>
+ </div>
+
+ <div class="section">
+  <h3>👤 Player Information</h3>
+  <label>Game ID</label>
+  <input id="gameId" placeholder="Enter Game ID">
+  <div id="serverArea">
+   <label>Server ID</label>
+   <input id="serverId" placeholder="Enter Server ID">
+  </div>
+ </div>
+<label>Customer Name</label>
+<input id="customer" placeholder="Enter Your Name">
+
+</div>
+ <div class="section">
+  <h3 id="packageTitle">💎 Select Diamonds</h3>
+  <div class="packages" id="packages"></div>
+  <div class="total">
+   <span>Total Price</span>
+   <strong id="total">0 MMK</strong>
+  </div>
+ </div>
+
+ <div class="section">
+  <h3>💳 Payment Information</h3>
+  <label>Payment Method</label>
+  <select id="payment">
+ <option>KBZPay</option>
+</select>
+
+<div style="background:#071c34;padding:15px;border-radius:10px;margin-top:12px">
+ <h3>💳 KBZPay Payment</h3>
+ <p>Phone: 09426328043</p>
+ <p>Name: Mg Hlwan Wai</p>
+ <button onclick="navigator.clipboard.writeText('09426328043')">
+  COPY KPay Number
+ </button>
+</div>
+
+  <label>Payment Screenshot</label>
+<input
+ id="paymentProof"
+ type="file"
+ accept="image/*"
+ required
+>
+
+  <button onclick="confirmOrder()">CONFIRM ORDER</button>
+ </div>
+<div id="orderSuccess" style="display:none;background:#064e35;color:white;padding:15px;border-radius:10px;margin-top:15px;text-align:center"></div>
+
+ <div class="footer">
+  © 2026 ZYRO GAME TOP UP<br>
+  All Rights Reserved.
+ </div>
+</div>
+
+<script>
+const gameProducts={
+ mlbb:[
+ 
+  ["86 Diamonds", 6000],
+  ["172 Diamonds",13000],
+  ["257 Diamonds",18000],
+  ["343 Diamonds",25000],
+  ["429 Diamonds",31500],
+  ["515 Diamonds",36000],
+  ["600 Diamonds",41000],
+  ["706 Diamonds",45000],
+  ["878 Diamonds",60000],
+  ["963 Diamonds",65000],
+  ["1049 Diamonds",72000],
+  ["1135 Diamonds",78000],
+  ["1412 Diamonds",95000],
+  ["2195 Diamonds",150000],
+  ["2901 Diamonds",190000],
+  ["3688 Diamonds",245000],
+  ["4394 Diamonds",300000],
+  ["5532 Diamonds",375000],
+  ["9288 Diamonds",600000]
+ ],
+ pubg:[
+  ["60 UC",5000],
+  ["120 UC",10000],
+  ["325 UC",24000],
+  ["660 UC",46000],
+  ["1800 UC",112000]
+ ]
+};
+
+let selectedPackage=null;
+
+function changeGame(){
+ selectedPackage=null;
+ const game=document.getElementById("game").value;
+
+ document.getElementById("packageTitle").textContent=
+  game==="mlbb"?"💎 Select Diamonds":"🪙 Select UC";
+
+ document.getElementById("serverArea").style.display=
+  game==="mlbb"?"block":"none";
+
+ document.getElementById("total").textContent="0 MMK";
+ renderPackages();
+}
+
+function renderPackages(){
+ const game=document.getElementById("game").value;
+ const area=document.getElementById("packages");
+ area.innerHTML="";
+
+ gameProducts[game].forEach(product=>{
+  const el=document.createElement("div");
+  el.className="package";
+
+  const name=document.createElement("b");
+  name.textContent=product[0];
+
+  const price=document.createElement("small");
+  price.textContent=product[1].toLocaleString("en-US")+" MMK";
+
+  el.appendChild(name);
+  el.appendChild(price);
+
+  el.onclick=()=>{
+   selectedPackage=product;
+   document.querySelectorAll(".package").forEach(item=>{
+    item.classList.remove("active");
+   });
+   el.classList.add("active");
+   document.getElementById("total").textContent=
+    product[1].toLocaleString("en-US")+" MMK";
+  };
+
+  area.appendChild(el);
+ });
+}
+
+async function confirmOrder(){
+ const game=document.getElementById("game").value;
+ const gameId=document.getElementById("gameId").value.trim();
+ const serverId=document.getElementById("serverId").value.trim();
+ const customer=document.getElementById("customer").value.trim();
+
+ if(!gameId||!customer){
+  alert("Game ID နဲ့ Customer Name ဖြည့်ပေးပါ။");
+  return;
+ }
+ if(game==="mlbb"&&!serverId){
+  alert("Server ID ဖြည့်ပေးပါ။");
+  return;
+ }
+ if(!selectedPackage){
+  alert("Package တစ်ခု ရွေးပေးပါ။");
+  return;
+ }
+
+ const button=document.querySelector('button[onclick="confirmOrder()"]');
+ button.disabled=true;
+ button.textContent="SENDING...";
+
+ const data=new FormData();
+data.append("game",game);
+data.append("gameId",gameId);
+data.append("serverId",serverId);
+data.append("packageName",selectedPackage[0]);
+data.append("customer",customer);
+
+const proof=document.getElementById("paymentProof").files[0];
+
+if(!proof){
+ alert("ငွေလွှဲ Screenshot တင်ပေးပါ။");
+ button.disabled=false;
+ button.textContent="CONFIRM ORDER";
+ return;
+}
+
+data.append("paymentProof",proof);
+
+ try{
+  const response=await fetch("/api/order",{
+   method:"POST",
+   body:data
+  });
+
+  const result=await response.json();
+
+  if(!response.ok){
+   throw new Error(result.error||"Order ပို့မရပါ။");
+  }
+
+  document.getElementById("orderSuccess").style.display="block";
+document.getElementById("orderSuccess").innerHTML=
+ "✅ Order တင်ပြီးပါပြီ။<br>Order ID: "+result.orderId;
+ }catch(error){
+  alert("Order မအောင်မြင်ပါ။ "+error.message);
+ }finally{
+  button.disabled=false;
+  button.textContent="CONFIRM ORDER";
+ }
+}
+
+
+changeGame();
+</script>
+</body>
+</html>
